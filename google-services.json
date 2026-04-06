@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "964264919257",
+    "project_id": "buso-busowebdashboard",
+    "storage_bucket": "buso-busowebdashboard.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:964264919257:android:24483b77136e4bf9b5fec8",
+        "android_client_info": {
+          "package_name": "com.anonymous.BusoBusoMobileApp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "964264919257-g29mkdruq5s77apa3433tdoa2eehaudg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.anonymous.BusoBusoMobileApp",
+            "certificate_hash": "61080d8c3428fc350647e9bcc772450b5900b5f3"
+          }
+        },
+        {
+          "client_id": "964264919257-v9fj3jpvv7p2qcc05rjpdui9tnlujsbu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyByrqSZIRW9qLXsEHKL2UI691ZeRfoJ-oY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "964264919257-v9fj3jpvv7p2qcc05rjpdui9tnlujsbu.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "964264919257-fd6k3aemqvhdj8ff3aa7gn4h7e7jk8p6.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.anonymous.BusoBusoMobileApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

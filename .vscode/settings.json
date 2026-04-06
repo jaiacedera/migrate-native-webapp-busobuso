@@ -1,0 +1,82 @@
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit",
+    "source.organizeImports": "explicit",
+    "source.sortMembers": "explicit"
+  },
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.import.gradle.enabled": false,
+  "java.import.gradle.wrapper.enabled": false,
+  "java.import.maven.enabled": false,
+  "java.autobuild.enabled": false,
+  "gradle.autoDetect": "off",
+  "gradle.nestedProjects": false,
+  "java.errors.incompleteClasspath.severity": "ignore",
+  "java.project.sourcePaths": [
+    "android/app/src/main/java"
+  ],
+  "java.project.resourceFilters": [
+    "node_modules",
+    "node_modules/expo/android",
+    "node_modules/expo-constants/android",
+    "node_modules/expo-modules-autolinking/android/expo-gradle-plugin",
+    "node_modules/expo-modules-core/expo-module-gradle-plugin",
+    "node_modules/react-native-worklets/android",
+    "node_modules/react-native-screens/android",
+    ".settings",
+    ".git",
+    ".expo",
+    "android/build",
+    "android/app/build"
+  ],
+  "java.project.referencedLibraries": [],
+  "java.checkConfiguration": false,
+  "java.project.importHint": false,
+  "java.project.outputPath": "android/app/build/intermediates/javac/debug/classes",
+  "problems.exclude": {
+    "**/node_modules/**": true,
+    "**/node_modules/**/tsconfig.json": true,
+    "**/node_modules/**/android/**": true,
+    "**/node_modules/expo/android/**": true,
+    "**/node_modules/react-native-worklets/android/**": true,
+    "**/node_modules/react-native-screens/android/**": true
+  },
+  "js/ts.tsdk.path": "node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  "js/ts.tsserver.experimental.enableProjectDiagnostics": false,
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "javascript.tsserver.experimental.enableProjectDiagnostics": false,
+  "json.schemaDownload.enable": false,
+  "java.import.exclusions": [
+    "**/node_modules/**",
+    "**/node_modules/expo/android/**",
+    "**/node_modules/expo-constants/android/**",
+    "**/node_modules/expo-modules-autolinking/android/expo-gradle-plugin/**",
+    "**/node_modules/expo-modules-core/expo-module-gradle-plugin/**",
+    "**/node_modules/react-native-worklets/android/**",
+    "**/node_modules/react-native-screens/android/**",
+    "**/.gradle/**",
+    "**/.expo/**",
+    "**/android/build/**",
+    "**/android/app/build/**"
+  ],
+  "java.project.importOnFirstTimeStartup": "disabled",
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/node_modules/expo/android/**": true,
+    "**/node_modules/react-native-worklets/android/**": true,
+    "**/node_modules/react-native-screens/android/**": true,
+    "**/.git/**": true,
+    "**/android/build/**": true,
+    "**/android/app/build/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/node_modules/expo/android": true,
+    "**/node_modules/react-native-worklets/android": true,
+    "**/node_modules/react-native-screens/android": true,
+    "**/android/build": true,
+    "**/android/app/build": true
+  }
+}

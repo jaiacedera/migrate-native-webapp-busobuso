@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "BusoBusoMobileApp",
+    "slug": "BusoBusoMobileApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/busobuso_logo.png",
+    "scheme": "busobusomobileapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record voice reports.",
+        "NSSpeechRecognitionUsageDescription": "This app needs to recognize your speech to convert it to text for reports.",
+        "NSLocationWhenInUseUsageDescription": "This app needs your current location to help responders find you during emergencies.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library so you can set your profile picture.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.anonymous.BusoBusoMobileApp"
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "pan",
+      "googleServicesFile": "./google-services.json",
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.BusoBusoMobileApp",
+      "permissions": [
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      "expo-image-picker",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/busobuso_logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ],
+      "@react-native-firebase/app/app.plugin.js",
+      "@react-native-firebase/messaging/app.plugin.js",
+      "expo-build-properties"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "apiBaseUrl": "http://192.168.1.62:4000",
+      "eas": {
+        "projectId": "a9640556-b569-4283-ac8a-7873d6b911cb"
+      }
+    }
+  }
+}
