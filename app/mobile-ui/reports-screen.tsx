@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
@@ -17,10 +17,9 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { WebView } from 'react-native-webview';
+import PinMap from '../../components/maps/PinMap';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { uploadImageToCloudinary } from '../../services/cloudinaryUpload';
-import { buildMapHtml } from '../../services/mapTemplateService';
 import {
   copyUserProfile,
   getReportSubmissionErrorMessage,
@@ -88,6 +87,7 @@ const hasAreaDetails = (entry?: Location.LocationGeocodedAddress | null): boolea
 
 const ReportsScreen = () => {
   const router = useRouter();
+  const isSpeechRecognitionSupported = Platform.OS !== 'web';
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
   const [photoPreviewModalVisible, setPhotoPreviewModalVisible] = useState(false);
@@ -142,13 +142,6 @@ const ReportsScreen = () => {
     })();
   }, []);
 
-  const mapHtml = useMemo(() => {
-    const selectedPin = currentLocation
-      ? ([currentLocation.longitude, currentLocation.latitude] as [number, number])
-      : null;
-    return buildMapHtml(mapCenter, selectedPin);
-  }, [mapCenter, currentLocation]);
-
   useEffect(() => {
     return () => {
       speechSubscriptionsRef.current.forEach((subscription: any) => subscription.remove());
@@ -156,29 +149,17 @@ const ReportsScreen = () => {
     };
   }, []);
 
-  const handleMapMessage = (event: { nativeEvent: { data: string } }) => {
-    try {
-      const payload = JSON.parse(event.nativeEvent.data);
-      if (payload?.type !== 'pin') {
-        return;
-      }
-
-      const latitude = Number(payload.latitude);
-      const longitude = Number(payload.longitude);
-
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-        return;
-      }
-
-      setCurrentLocation({
-        latitude,
-        longitude,
-        accuracy: null,
-        capturedAt: payload.capturedAt ?? new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error('Failed to parse map pin payload:', error);
-    }
+  const handleMapPinChange = (payload: {
+    latitude: number;
+    longitude: number;
+    capturedAt: string;
+  }) => {
+    setCurrentLocation({
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      accuracy: null,
+      capturedAt: payload.capturedAt,
+    });
   };
 
   const handlePinCurrentLocation = async () => {
@@ -253,6 +234,10 @@ const ReportsScreen = () => {
   };
 
   const loadSpeechModule = async (): Promise<SpeechRecognitionModule | null> => {
+    if (!isSpeechRecognitionSupported) {
+      return null;
+    }
+
     if (speechModuleRef.current) {
       return speechModuleRef.current;
     }
@@ -309,6 +294,14 @@ const ReportsScreen = () => {
   };
 
   const handleMicPress = async () => {
+    if (!isSpeechRecognitionSupported) {
+      Alert.alert(
+        'Voice Input Unavailable',
+        'Voice input is not available on web yet. Please type your report instead.'
+      );
+      return;
+    }
+
     try {
       const speechModule = await loadSpeechModule();
 
@@ -538,14 +531,12 @@ const ReportsScreen = () => {
 
         <Text style={styles.inputLabel}>Pin Exact Report Location</Text>
         <View style={styles.mapCard}>
-          <WebView
-            source={{ html: mapHtml }}
-            originWhitelist={['*']}
+          <PinMap
+            center={mapCenter}
+            selectedPin={currentLocation ? [currentLocation.longitude, currentLocation.latitude] : null}
             style={styles.mapWebView}
-            javaScriptEnabled
-            domStorageEnabled
             scrollEnabled={false}
-            onMessage={handleMapMessage}
+            onPinChange={handleMapPinChange}
           />
           <View style={styles.mapFooter}>
             <View style={styles.mapControlsRow}>
@@ -634,11 +625,19 @@ const ReportsScreen = () => {
         <View style={styles.footerRow}>
           <View style={styles.mediaActionsRow}>
             <TouchableOpacity 
-              style={[styles.micBtn, isRecording && styles.micBtnRecording]}
+              style={[
+                styles.micBtn,
+                !isSpeechRecognitionSupported && styles.micBtnDisabled,
+                isRecording && styles.micBtnRecording,
+              ]}
               onPress={handleMicPress}
               activeOpacity={0.7}
             >
-              <Ionicons name={isRecording ? "mic-off" : "mic"} size={24} color="white" />
+              <Ionicons
+                name={!isSpeechRecognitionSupported || isRecording ? "mic-off" : "mic"}
+                size={24}
+                color="white"
+              />
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -650,7 +649,7 @@ const ReportsScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {isRecording && <Text style={styles.recordingText}>Recording...</Text>}
+          {isRecording && isSpeechRecognitionSupported && <Text style={styles.recordingText}>Recording...</Text>}
 
           <TouchableOpacity 
             style={styles.submitBtn} 
@@ -808,13 +807,11 @@ const ReportsScreen = () => {
         onRequestClose={handleCloseFullscreenMap}
       >
         <View style={styles.fullscreenMapContainer}>
-          <WebView
-            source={{ html: mapHtml }}
-            originWhitelist={['*']}
+          <PinMap
+            center={mapCenter}
+            selectedPin={currentLocation ? [currentLocation.longitude, currentLocation.latitude] : null}
             style={styles.fullscreenMapWebView}
-            javaScriptEnabled
-            domStorageEnabled
-            onMessage={handleMapMessage}
+            onPinChange={handleMapPinChange}
           />
 
           <View style={styles.fullscreenMapTopActions}>
@@ -1088,6 +1085,9 @@ const styles = StyleSheet.create({
     backgroundColor: THEME_BLUE,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  micBtnDisabled: {
+    opacity: 0.55,
   },
   micBtnRecording: {
     backgroundColor: '#DC2626',

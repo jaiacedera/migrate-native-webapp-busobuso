@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,8 +30,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import AboutModal from '../../components/about-modal';
+import PinMap from '../../components/maps/PinMap';
 import { philippinesCenter } from '../../constants/location';
 import {
   NOTIFICATION_ENABLED_VALUE,
@@ -40,7 +40,6 @@ import {
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { getLocation } from '../../services/api';
 import { auth, db } from '../../services/firebaseconfig';
-import { buildMapHtml } from '../../services/mapTemplateService';
 import { sendChatbotMessage } from '../../services/openaiChatService';
 import {
   disableResidentPushNotifications,
@@ -113,6 +112,7 @@ type MenuItem = {
 const ProfileScreen = () => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isWebPlatform = Platform.OS === 'web';
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [displayName, setDisplayName] = useState<string>();
   const [profileData, setProfileData] = useState<ResidentProfile | null>(null);
@@ -290,14 +290,16 @@ const ProfileScreen = () => {
       return;
     }
 
-    (async () => {
-      try {
-        const savedLocalImageUri = await AsyncStorage.getItem(getLocalProfileImageKey(currentUser.uid));
-        setLocalProfileImageUri(savedLocalImageUri);
-      } catch (error) {
-        console.error('Failed to load local profile image URI:', error);
-      }
-    })();
+    if (!isWebPlatform) {
+      (async () => {
+        try {
+          const savedLocalImageUri = await AsyncStorage.getItem(getLocalProfileImageKey(currentUser.uid));
+          setLocalProfileImageUri(savedLocalImageUri);
+        } catch (error) {
+          console.error('Failed to load local profile image URI:', error);
+        }
+      })();
+    }
 
     const profileRef = doc(db, 'residents', currentUser.uid);
     const fallbackAuthName =
@@ -337,7 +339,7 @@ const ProfileScreen = () => {
     );
 
     return unsubscribe;
-  }, []);
+  }, [isWebPlatform]);
 
   const handleLogout = async () => {
     try {
@@ -419,35 +421,17 @@ const ProfileScreen = () => {
     }
   };
 
-  const mapHtml = useMemo(() => {
-    const selectedPin = pinnedLocation
-      ? ([pinnedLocation.longitude, pinnedLocation.latitude] as [number, number])
-      : null;
-    return buildMapHtml(mapCenter, selectedPin);
-  }, [mapCenter, pinnedLocation]);
-
-  const handleAddressMapMessage = (event: { nativeEvent: { data: string } }) => {
-    try {
-      const payload = JSON.parse(event.nativeEvent.data);
-      if (payload?.type !== 'pin') {
-        return;
-      }
-
-      const latitude = Number(payload.latitude);
-      const longitude = Number(payload.longitude);
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-        return;
-      }
-
-      setPinnedLocation({
-        latitude,
-        longitude,
-        accuracy: null,
-        capturedAt: payload.capturedAt ?? new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error('Failed to parse address map message:', error);
-    }
+  const handleAddressMapPinChange = (payload: {
+    latitude: number;
+    longitude: number;
+    capturedAt: string;
+  }) => {
+    setPinnedLocation({
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      accuracy: null,
+      capturedAt: payload.capturedAt,
+    });
   };
 
   const handlePinCurrentAddressLocation = async () => {
@@ -556,7 +540,9 @@ const ProfileScreen = () => {
     try {
       setIsUploadingProfilePhoto(true);
 
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission = isWebPlatform
+        ? { granted: true }
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert('Permission Needed', 'Please allow photo library access to set a profile picture.');
         return;
@@ -575,6 +561,18 @@ const ProfileScreen = () => {
       }
 
       const selectedAsset = pickerResult.assets[0];
+
+      if (isWebPlatform) {
+        if (!selectedAsset.uri) {
+          Alert.alert('Upload Failed', 'Selected image is unavailable in this browser.');
+          return;
+        }
+
+        setLocalProfileImageUri(selectedAsset.uri);
+        Alert.alert('Profile Updated', 'Your profile picture has been updated for this browser session.');
+        return;
+      }
+
       let imageBase64 = selectedAsset.base64 ?? '';
 
       if (!imageBase64) {
@@ -658,6 +656,12 @@ const ProfileScreen = () => {
 
     if (!currentUser) {
       Alert.alert('Session Expired', 'Please log in again.');
+      return;
+    }
+
+    if (isWebPlatform) {
+      setLocalProfileImageUri(null);
+      Alert.alert('Removed', 'Browser-session profile photo preview cleared.');
       return;
     }
 
@@ -1088,13 +1092,11 @@ const ProfileScreen = () => {
             <Text style={styles.addressLabel}>Pin Exact Location</Text>
             <Text style={styles.addressHint}>Tap the map to pin your location.</Text>
             <View style={styles.addressMapContainer}>
-              <WebView
-                source={{ html: mapHtml }}
-                originWhitelist={['*']}
+              <PinMap
+                center={mapCenter}
+                selectedPin={pinnedLocation ? [pinnedLocation.longitude, pinnedLocation.latitude] : null}
                 style={styles.addressMapWebView}
-                onMessage={handleAddressMapMessage}
-                javaScriptEnabled
-                domStorageEnabled
+                onPinChange={handleAddressMapPinChange}
                 scrollEnabled={false}
               />
             </View>

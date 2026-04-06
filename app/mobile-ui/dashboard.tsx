@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import HazardMap from '../../components/maps/HazardMap';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { auth, db } from '../../services/firebaseconfig';
 import { sendChatbotMessage } from '../../services/openaiChatService';
@@ -249,237 +249,6 @@ function formatDistance(km: number | null): string {
     return 'Distance unavailable';
   }
   return `${km.toFixed(1)} km away`;
-}
-
-function buildHazardMapHtml(
-  centers: EvacuationCenterItem[],
-  deviceCoords: Coordinates | null,
-  selectedCenterId: string | null
-): string {
-  const serializedCenters = JSON.stringify(
-    centers.map((center) => ({
-      id: center.id,
-      name: center.name,
-      legend: center.legend,
-      latitude: center.latitude,
-      longitude: center.longitude,
-    }))
-  );
-  const serializedDeviceCoords = JSON.stringify(deviceCoords);
-  const serializedSelectedCenterId = JSON.stringify(selectedCenterId);
-
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-    <style>
-      html, body, #map {
-        height: 100%;
-        width: 100%;
-        margin: 0;
-        padding: 0;
-      }
-      .popup-title {
-        font-size: 13px;
-        font-weight: 700;
-        margin: 0;
-      }
-      .popup-sub {
-        font-size: 11px;
-        color: #4b5563;
-        margin: 4px 0 0;
-      }
-      .marker {
-        width: 22px;
-        height: 22px;
-        border-radius: 50%;
-        border: 2px solid #ffffff;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-      }
-      .marker.pickup {
-        background: #2563eb;
-      }
-      .marker.evacuation {
-        background: #c62828;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="map"></div>
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-    <script>
-      const centers = ${serializedCenters};
-      const deviceCoords = ${serializedDeviceCoords};
-      const selectedCenterId = ${serializedSelectedCenterId};
-
-      const map = new maplibregl.Map({
-        container: 'map',
-        style: 'https://tiles.openfreemap.org/styles/liberty',
-        center: [120.947874, 14.024067],
-        zoom: 11
-      });
-
-      const bounds = new maplibregl.LngLatBounds();
-
-      function getDeviceLngLat() {
-        if (!deviceCoords) {
-          return null;
-        }
-
-        return [deviceCoords.longitude, deviceCoords.latitude];
-      }
-
-      function ensureRouteLayer() {
-        if (!map.getSource('route-line')) {
-          map.addSource('route-line', {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: {
-                type: 'LineString',
-                coordinates: []
-              },
-              properties: {}
-            }
-          });
-
-          map.addLayer({
-            id: 'route-line-layer',
-            type: 'line',
-            source: 'route-line',
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round'
-            },
-            paint: {
-              'line-color': '#1d4ed8',
-              'line-width': 5,
-              'line-opacity': 0.9
-            }
-          });
-        }
-      }
-
-      function setRouteCoordinates(coordinates) {
-        const routeSource = map.getSource('route-line');
-        if (!routeSource) {
-          return;
-        }
-
-        routeSource.setData({
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates
-          },
-          properties: {}
-        });
-      }
-
-      async function plotRouteToCenter(center) {
-        const from = getDeviceLngLat();
-        if (!from) {
-          return;
-        }
-
-        ensureRouteLayer();
-
-        const destination = [center.longitude, center.latitude];
-
-        try {
-          const response = await fetch(
-            'https://router.project-osrm.org/route/v1/driving/' +
-              from[0] + ',' + from[1] + ';' + destination[0] + ',' + destination[1] +
-              '?overview=full&geometries=geojson&alternatives=false&steps=false'
-          );
-
-          if (response.ok) {
-            const json = await response.json();
-            const routeCoordinates = json && json.routes && json.routes[0] && json.routes[0].geometry
-              ? json.routes[0].geometry.coordinates
-              : null;
-
-            if (routeCoordinates && routeCoordinates.length >= 2) {
-              setRouteCoordinates(routeCoordinates);
-
-              const routeBounds = new maplibregl.LngLatBounds();
-              routeCoordinates.forEach((point) => routeBounds.extend(point));
-              map.fitBounds(routeBounds, { padding: 40, maxZoom: 15 });
-              return;
-            }
-          }
-        } catch {
-          // Keep UI functional even if routing API is unavailable.
-        }
-
-        // Fallback: draw a straight line so route intent is still visible.
-        const fallbackCoordinates = [from, destination];
-        setRouteCoordinates(fallbackCoordinates);
-        const fallbackBounds = new maplibregl.LngLatBounds();
-        fallbackCoordinates.forEach((point) => fallbackBounds.extend(point));
-        map.fitBounds(fallbackBounds, { padding: 40, maxZoom: 14 });
-      }
-
-      const currentDeviceLngLat = getDeviceLngLat();
-      if (currentDeviceLngLat) {
-        bounds.extend(currentDeviceLngLat);
-        const userMarkerElement = document.createElement('div');
-        userMarkerElement.className = 'marker pickup';
-        userMarkerElement.style.background = '#16a34a';
-
-        new maplibregl.Marker({ element: userMarkerElement })
-          .setLngLat(currentDeviceLngLat)
-          .setPopup(new maplibregl.Popup({ offset: 20 }).setHTML('<p class="popup-title">Your current location</p>'))
-          .addTo(map);
-      }
-
-      centers.forEach((center) => {
-        const lngLat = [center.longitude, center.latitude];
-        bounds.extend(lngLat);
-
-        const legendText = (center.legend || '').toLowerCase();
-        const markerKind = legendText.includes('pickup') ? 'pickup' : 'evacuation';
-        const markerElement = document.createElement('div');
-        markerElement.className = 'marker ' + markerKind;
-
-        const popupHtml =
-          '<p class="popup-title">' + center.name + '</p>' +
-          '<p class="popup-sub">' + center.legend + '</p>';
-
-        const marker = new maplibregl.Marker({ element: markerElement })
-          .setLngLat(lngLat)
-          .setPopup(new maplibregl.Popup({ offset: 20 }).setHTML(popupHtml))
-          .addTo(map);
-
-        marker.getElement().addEventListener('click', () => {
-          plotRouteToCenter(center);
-        });
-      });
-
-      map.on('load', () => {
-        ensureRouteLayer();
-
-        if (centers.length > 1) {
-          map.fitBounds(bounds, { padding: 40, maxZoom: 15 });
-        } else if (centers.length === 1) {
-          map.flyTo({ center: [centers[0].longitude, centers[0].latitude], zoom: 14 });
-        }
-
-        if (selectedCenterId) {
-          const selectedCenter = centers.find((center) => center.id === selectedCenterId);
-          if (selectedCenter) {
-            // Delay to ensure fit/fly animation has initialized before drawing route.
-            setTimeout(() => {
-              plotRouteToCenter(selectedCenter);
-            }, 150);
-          }
-        }
-      });
-    </script>
-  </body>
-</html>`;
 }
 
 const formatRelativeTime = (date: Date | null): string => {
@@ -1280,21 +1049,15 @@ const MapSection = ({
   selectedCenterId: string | null;
   onChangeLocationSourcePress: () => void;
 }) => {
-  const mapHtml = useMemo(
-    () => buildHazardMapHtml(centers, referenceCoords, selectedCenterId),
-    [centers, referenceCoords, selectedCenterId]
-  );
-
   const sourceLabel = locationSource === 'profile' ? 'Saved form location' : 'Device location';
 
   return (
     <View style={styles.mapCard}>
-      <WebView
-        source={{ html: mapHtml }}
-        originWhitelist={['*']}
+      <HazardMap
+        centers={centers}
+        referenceCoords={referenceCoords}
+        selectedCenterId={selectedCenterId}
         style={styles.mapWebView}
-        javaScriptEnabled
-        domStorageEnabled
         scrollEnabled={false}
       />
       <View style={styles.mapButton}>

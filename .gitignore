@@ -46,9 +46,23 @@ app-example
 
 node_modules/
 dist/
-build/
+dist-test/
 .expo/
+.vercel/
 .env
 .env.local
+web/.env
+web/.env.local
 *.log
 .DS_Store
+edge-headless-profile/
+
+
+dist-test/
+edge-headless-profile/
+.expo/
+.vercel/
+web/.env
+web/.env.local
+.env
+.env.local

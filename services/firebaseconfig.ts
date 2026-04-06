@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { Platform } from 'react-native';
 
 // Your web app's Firebase configuration
 //hingin kay llyne say ang config 
@@ -35,7 +36,9 @@ const getReactNativePersistence = (
 ).getReactNativePersistence;
 
 try {
-  if (getReactNativePersistence) {
+  if (Platform.OS === 'web') {
+    authInstance = getAuth(app);
+  } else if (getReactNativePersistence) {
     authInstance = initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage) as any,
     });

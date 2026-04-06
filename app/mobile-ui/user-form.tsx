@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -16,11 +16,10 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import PinMap from '../../components/maps/PinMap';
 import { philippinesCenter } from '../../constants/location';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { getLocation } from '../../services/api';
-import { buildMapHtml } from '../../services/mapTemplateService';
 import { saveUserProfile } from '../../services/userProfileService';
 
 const THEME_BLUE = '#274C77';
@@ -81,13 +80,6 @@ const UserForm = () => {
     })();
   }, []);
 
-  const mapHtml = useMemo(() => {
-    const selectedPin = pinnedLocation
-      ? ([pinnedLocation.longitude, pinnedLocation.latitude] as [number, number])
-      : null;
-    return buildMapHtml(mapCenter, selectedPin);
-  }, [mapCenter, pinnedLocation]);
-
   const validate = () => {
     let newErrors: Record<string, string> = {};
 
@@ -145,33 +137,22 @@ const UserForm = () => {
     }
   };
 
-  const handleMapMessage = (event: { nativeEvent: { data: string } }) => {
-    try {
-      const payload = JSON.parse(event.nativeEvent.data);
-      if (payload?.type !== 'pin') {
-        return;
-      }
-
-      const latitude = Number(payload.latitude);
-      const longitude = Number(payload.longitude);
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-        return;
-      }
-
-      setPinnedLocation({
-        latitude,
-        longitude,
-        accuracy: null,
-        capturedAt: payload.capturedAt ?? new Date().toISOString(),
-      });
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next.currentLocation;
-        return next;
-      });
-    } catch (error) {
-      console.error('Failed to parse map message:', error);
-    }
+  const handleMapPinChange = (payload: {
+    latitude: number;
+    longitude: number;
+    capturedAt: string;
+  }) => {
+    setPinnedLocation({
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      accuracy: null,
+      capturedAt: payload.capturedAt,
+    });
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.currentLocation;
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -287,13 +268,11 @@ const UserForm = () => {
           {renderInputLabel("Current Location Pin")}
           <Text style={styles.mapHintText}>Tap anywhere on the map to drop your pin.</Text>
           <View style={styles.mapContainer}>
-            <WebView
-              source={{ html: mapHtml }}
-              originWhitelist={['*']}
+            <PinMap
+              center={mapCenter}
+              selectedPin={pinnedLocation ? [pinnedLocation.longitude, pinnedLocation.latitude] : null}
               style={styles.mapWebView}
-              onMessage={handleMapMessage}
-              javaScriptEnabled
-              domStorageEnabled
+              onPinChange={handleMapPinChange}
               nestedScrollEnabled
               scrollEnabled={false}
             />
