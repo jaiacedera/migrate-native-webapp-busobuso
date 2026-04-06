@@ -10,40 +10,40 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  BackHandler,
-  FlatList,
-  Image,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Modal,
-  PanResponder,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    BackHandler,
+    FlatList,
+    Image,
+    ImageBackground,
+    KeyboardAvoidingView,
+    Modal,
+    PanResponder,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AboutModal from '../../components/about-modal';
 import PinMap from '../../components/maps/PinMap';
 import { philippinesCenter } from '../../constants/location';
 import {
-  NOTIFICATION_ENABLED_VALUE,
-  NOTIFICATION_PREFERENCE_KEY,
+    NOTIFICATION_ENABLED_VALUE,
+    NOTIFICATION_PREFERENCE_KEY,
 } from '../../constants/notification-settings';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { getLocation } from '../../services/api';
 import { auth, db } from '../../services/firebaseconfig';
 import { sendChatbotMessage } from '../../services/openaiChatService';
 import {
-  disableResidentPushNotifications,
-  enableResidentPushNotifications,
+    disableResidentPushNotifications,
+    enableResidentPushNotifications,
 } from '../../services/pushNotificationService';
 
 const THEME_BLUE = '#274C77';
@@ -790,17 +790,18 @@ const ProfileScreen = () => {
 
         {/* 2. MENU LIST */}
         <FlatList
+          style={styles.menuList}
           data={menuItems}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={styles.listPadding}
+          contentContainerStyle={[styles.listPadding, { paddingBottom: scaleHeight(108) + insets.bottom }]}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={false}
+          scrollEnabled
         />
       </View>
 
       <TouchableOpacity
-        style={styles.chatbotFab}
+        style={[styles.chatbotFab, { bottom: scaleHeight(68) + insets.bottom }]}
         onPress={() => setChatbotVisible(true)}
         activeOpacity={0.8}
       >
@@ -811,8 +812,8 @@ const ProfileScreen = () => {
         />
       </TouchableOpacity>
 
-      <View style={styles.bottomNavContainer}>
-        <View style={styles.bottomNav}>
+      <View style={[styles.bottomNavContainer, { height: scaleHeight(70) + insets.bottom }]}>
+        <View style={[styles.bottomNav, { height: scaleHeight(70), paddingBottom: insets.bottom }]}>
           <TouchableOpacity
             style={styles.navItem}
             onPress={() => router.replace('/mobile-ui/dashboard')}
@@ -1261,8 +1262,12 @@ const styles = StyleSheet.create({
     elevation: 10,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    marginTop: -scaleHeight(70),
+    marginTop: -scaleHeight(56),
     paddingTop: 0,
+  },
+  menuList: {
+    width: '100%',
+    flex: 1,
   },
   userNameSlot: {
     width: '100%',
@@ -1288,7 +1293,7 @@ const styles = StyleSheet.create({
     paddingBottom: scaleHeight(108),
     marginTop: 2,
     alignItems: 'center',
-    paddingLeft: scaleWidth(44),
+    paddingLeft: 0,
   },
   menuItem: {
     flexDirection: 'row',

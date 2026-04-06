@@ -2,34 +2,33 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import {
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
+    collection,
+    doc,
+    getDoc,
+    onSnapshot,
 } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  BackHandler,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    BackHandler,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import HazardMap from '../../components/maps/HazardMap';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { auth, db } from '../../services/firebaseconfig';
 import { sendChatbotMessage } from '../../services/openaiChatService';
 const THEME_BLUE = '#274C77';
 const BG_COLOR = '#F0F4F8';
-const viewportHeight = screen.height;
 
 type AlertItem = {
   id: string;
@@ -361,6 +360,7 @@ const toDateValue = (value: unknown): Date | null => {
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
   // Modal states
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
@@ -751,7 +751,7 @@ export default function DashboardScreen() {
           
           {/* CHATBOT FLOATING BUTTON */}
           <TouchableOpacity 
-            style={styles.chatbotFab} 
+            style={[styles.chatbotFab, { bottom: scaleHeight(68) + insets.bottom }]} 
             onPress={() => setChatbotVisible(true)}
             activeOpacity={0.8}
           >
@@ -764,8 +764,8 @@ export default function DashboardScreen() {
         </View>
 
         {/* CUSTOM BOTTOM NAVIGATION */}
-        <View style={styles.bottomNavContainer}>
-          <View style={styles.bottomNav}>
+        <View style={[styles.bottomNavContainer, { height: scaleHeight(70) + insets.bottom }]}>
+          <View style={[styles.bottomNav, { height: scaleHeight(70), paddingBottom: insets.bottom }]}>
             <TouchableOpacity 
               style={styles.navItem} 
               onPress={() => router.replace('/mobile-ui/dashboard')}
@@ -1303,7 +1303,9 @@ const styles = StyleSheet.create({
   },
   chatbotContainer: {
     backgroundColor: 'white',
-    height: viewportHeight * 0.7,
+    height: '70%',
+    minHeight: scaleHeight(320),
+    maxHeight: scaleHeight(560),
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     paddingBottom: Platform.OS === 'ios' ? 20 : 0,

@@ -3,27 +3,28 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
-  BackHandler,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    BackHandler,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PinMap from '../../components/maps/PinMap';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { uploadImageToCloudinary } from '../../services/cloudinaryUpload';
 import {
-  copyUserProfile,
-  getReportSubmissionErrorMessage,
-  submitIncidentReport,
+    copyUserProfile,
+    getReportSubmissionErrorMessage,
+    submitIncidentReport,
 } from '../../services/reportService';
 import IncidentCameraScreen from './IncidentCameraScreen';
 
@@ -87,6 +88,8 @@ const hasAreaDetails = (entry?: Location.LocationGeocodedAddress | null): boolea
 
 const ReportsScreen = () => {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const appBarTopInset = Platform.OS === 'android' ? APP_BAR_TOP : APP_BAR_TOP + insets.top;
   const isSpeechRecognitionSupported = Platform.OS !== 'web';
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
@@ -505,7 +508,8 @@ const ReportsScreen = () => {
   // --- VIEW 1: THE REPORT FORM ---
   const renderReportForm = () => (
     <ScrollView
-      contentContainerStyle={styles.formScroll}
+      style={styles.formScrollView}
+      contentContainerStyle={[styles.formScroll, { paddingBottom: scaleHeight(44) + insets.bottom }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
@@ -715,7 +719,7 @@ const ReportsScreen = () => {
       <StatusBar barStyle="dark-content" />
       
       {/* Custom AppBar */}
-      <View style={styles.appBar}>
+      <View style={[styles.appBar, { paddingTop: appBarTopInset }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={THEME_BLUE} />
         </TouchableOpacity>
@@ -782,7 +786,7 @@ const ReportsScreen = () => {
       >
         <View style={styles.photoPreviewModalContainer}>
           <TouchableOpacity
-            style={styles.photoPreviewCloseButton}
+            style={[styles.photoPreviewCloseButton, { top: appBarTopInset }]}
             activeOpacity={0.8}
             onPress={handleClosePhotoPreview}
           >
@@ -814,7 +818,7 @@ const ReportsScreen = () => {
             onPinChange={handleMapPinChange}
           />
 
-          <View style={styles.fullscreenMapTopActions}>
+          <View style={[styles.fullscreenMapTopActions, { top: appBarTopInset }]}>
             <TouchableOpacity
               style={styles.fullscreenMapIconBtn}
               activeOpacity={0.85}
@@ -826,7 +830,7 @@ const ReportsScreen = () => {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.fullscreenMapBottomActions}>
+          <View style={[styles.fullscreenMapBottomActions, { bottom: scaleHeight(28) + insets.bottom }]}>
             <TouchableOpacity
               style={styles.pinNowBtn}
               activeOpacity={0.85}
@@ -878,6 +882,7 @@ export default ReportsScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#E8E8E8' },
+  formScrollView: { flex: 1 },
   appBar: {
     flexDirection: 'row',
     alignItems: 'center',

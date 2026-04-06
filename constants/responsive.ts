@@ -1,4 +1,4 @@
-import { Dimensions, PixelRatio } from 'react-native';
+import { Dimensions, PixelRatio, Platform } from 'react-native';
 
 const BASE_WIDTH = 390;
 const BASE_HEIGHT = 844;
@@ -9,19 +9,25 @@ const clamp = (value: number, min: number, max: number): number => {
   return Math.min(max, Math.max(min, value));
 };
 
+const isWeb = Platform.OS === 'web';
+
+// Prevent desktop web windows from inflating mobile-oriented spacing/size scales.
+const scaledViewportWidth = isWeb ? clamp(viewportWidth, 320, BASE_WIDTH) : viewportWidth;
+const scaledViewportHeight = isWeb ? clamp(viewportHeight, 680, BASE_HEIGHT) : viewportHeight;
+
 export const screen = {
-  width: viewportWidth,
-  height: viewportHeight,
-  isSmallPhone: viewportWidth < 360,
-  isTallPhone: viewportHeight >= 800,
+  width: scaledViewportWidth,
+  height: scaledViewportHeight,
+  isSmallPhone: scaledViewportWidth < 360,
+  isTallPhone: scaledViewportHeight >= 800,
 };
 
 export const scaleWidth = (size: number): number => {
-  return (viewportWidth / BASE_WIDTH) * size;
+  return (scaledViewportWidth / BASE_WIDTH) * size;
 };
 
 export const scaleHeight = (size: number): number => {
-  return (viewportHeight / BASE_HEIGHT) * size;
+  return (scaledViewportHeight / BASE_HEIGHT) * size;
 };
 
 export const moderateScale = (size: number, factor = 0.5): number => {
