@@ -41,7 +41,25 @@
       ]
     },
     "web": {
-      "output": "static"
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/busobuso_logo.png",
+      "name": "BusoBuso Resident EOC",
+      "shortName": "BusoBuso EOC",
+      "lang": "en",
+      "scope": "/",
+      "themeColor": "#274C77",
+      "backgroundColor": "#FFFFFF",
+      "description": "Barangay Buso-Buso Resident EOC web app for sign-in, resident profile setup, reporting, and emergency response access.",
+      "display": "standalone",
+      "barStyle": "default",
+      "startUrl": ".",
+      "orientation": "portrait",
+      "splash": {
+        "backgroundColor": "#FFFFFF",
+        "resizeMode": "contain",
+        "image": "./assets/images/busobuso_logo.png"
+      }
     },
     "plugins": [
       "expo-router",
