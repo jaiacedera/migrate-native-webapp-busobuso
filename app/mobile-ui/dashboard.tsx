@@ -8,7 +8,7 @@ import {
     getDoc,
     onSnapshot,
 } from 'firebase/firestore';
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     BackHandler,
@@ -411,6 +411,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const safeAreaInsets = useContext(SafeAreaInsetsContext);
   const insets = safeAreaInsets ?? ZERO_INSETS;
+  const chatInputRef = useRef<TextInput | null>(null);
   
   // Modal states
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
@@ -943,6 +944,10 @@ export default function DashboardScreen() {
   }, [evacuationCenters.length, isLoadingEvacuationCenters, isWebMapReady]);
 
   const screenResetKey = `${currentUser?.uid ?? 'guest'}-${String(isWebMapReady)}`;
+  const closeChatbotModal = () => {
+    chatInputRef.current?.blur();
+    setChatbotVisible(false);
+  };
 
   return (
     <View
@@ -1010,12 +1015,12 @@ export default function DashboardScreen() {
           )}
           
           {/* CHATBOT FLOATING BUTTON */}
-          <TouchableOpacity 
-            style={[styles.chatbotFab, { bottom: scaleHeight(68) + insets.bottom }]} 
-            onPress={() => setChatbotVisible(true)}
-            activeOpacity={0.8}
-            disabled={!currentUser}
-          >
+        <TouchableOpacity 
+          style={[styles.chatbotFab, { bottom: scaleHeight(68) + insets.bottom }]} 
+          onPress={() => setChatbotVisible(true)}
+          activeOpacity={0.8}
+          disabled={!currentUser}
+        >
             <Image 
               source={require('../../assets/images/pyro_logo.png')} 
               style={styles.chatbotImage} 
@@ -1141,13 +1146,13 @@ export default function DashboardScreen() {
         {/* 3. Chatbot Modal */}
         <Modal visible={chatbotVisible} transparent animationType="slide">
           <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'web' ? undefined : 'height'}
             style={styles.modalOverlay}
           >
             <TouchableOpacity 
               style={{ flex: 1, width: '100%' }} 
               activeOpacity={1} 
-              onPress={() => setChatbotVisible(false)} 
+              onPress={closeChatbotModal} 
             />
             
             <View style={styles.chatbotContainer}>
@@ -1196,13 +1201,15 @@ export default function DashboardScreen() {
 
               <View style={styles.chatbotInputContainer}>
                 <TextInput 
-                  style={styles.chatbotInput} 
+                  ref={chatInputRef}
+                  style={[styles.chatbotInput, Platform.OS === 'web' && styles.webTextInput]} 
                   placeholder="Type a message..."
                   placeholderTextColor="grey"
                   value={chatInput}
                   onChangeText={setChatInput}
                   onSubmitEditing={handleSendChat}
                   editable={!isChatSending}
+                  returnKeyType="send"
                 />
                 <TouchableOpacity
                   style={styles.sendButton}
@@ -1732,6 +1739,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginRight: 10,
     color: 'black',
+  },
+  webTextInput: {
+    fontSize: 16,
+    lineHeight: 20,
   },
   sendButton: {
     padding: 10,

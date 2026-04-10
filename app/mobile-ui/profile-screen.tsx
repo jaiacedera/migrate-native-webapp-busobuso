@@ -5,10 +5,10 @@ import * as LegacyFileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -40,7 +40,6 @@ import {
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { getLocation } from '../../services/api';
 import { auth, db } from '../../services/firebaseconfig';
-import { sendChatbotMessage } from '../../services/openaiChatService';
 import {
     disableResidentPushNotifications,
     enableResidentPushNotifications,
@@ -109,14 +108,66 @@ type MenuItem = {
   isNotification?: boolean;
 };
 
+type ProfileSectionBoundaryProps = {
+  children: React.ReactNode;
+  fallbackTitle: string;
+  fallbackMessage: string;
+  resetKey: string;
+};
+
+type ProfileSectionBoundaryState = {
+  hasError: boolean;
+};
+
+class ProfileSectionBoundary extends React.Component<
+  ProfileSectionBoundaryProps,
+  ProfileSectionBoundaryState
+> {
+  state: ProfileSectionBoundaryState = {
+    hasError: false,
+  };
+
+  static getDerivedStateFromError(): ProfileSectionBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Profile section crashed:', error);
+  }
+
+  componentDidUpdate(prevProps: ProfileSectionBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.sectionFallbackCard}>
+          <MaterialIcons name="error-outline" size={28} color="#B45309" />
+          <Text style={styles.sectionFallbackTitle}>{this.props.fallbackTitle}</Text>
+          <Text style={styles.sectionFallbackMessage}>{this.props.fallbackMessage}</Text>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const ProfileScreen = () => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isWebPlatform = Platform.OS === 'web';
+  const chatInputRef = useRef<TextInput | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+  const [isAuthResolved, setIsAuthResolved] = useState(Boolean(auth.currentUser));
   const [displayName, setDisplayName] = useState<string>();
   const [profileData, setProfileData] = useState<ResidentProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const [showPersonalInfoModal, setShowPersonalInfoModal] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [editableAddress, setEditableAddress] = useState('');
@@ -139,6 +190,7 @@ const ProfileScreen = () => {
   ]);
   const [chatInput, setChatInput] = useState('');
   const [isChatSending, setIsChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [isNotificationEnabled, setIsNotificationEnabled] = useState(true);
   const [isNotificationLoading, setIsNotificationLoading] = useState(true);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -146,9 +198,12 @@ const ProfileScreen = () => {
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false);
   const [localProfileImageUri, setLocalProfileImageUri] = useState<string | null>(null);
+  const [addressMapError, setAddressMapError] = useState<string | null>(null);
+  const [isWebAddressMapReady, setIsWebAddressMapReady] = useState(Platform.OS !== 'web');
   const chatSheetTranslateY = useState(new Animated.Value(0))[0];
 
   const closeChatbotSheet = () => {
+    chatInputRef.current?.blur();
     Animated.timing(chatSheetTranslateY, {
       toValue: 500,
       duration: 180,
@@ -199,6 +254,27 @@ const ProfileScreen = () => {
   )[0];
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (user) => {
+        setCurrentUser(user);
+        setIsAuthResolved(true);
+      },
+      (error) => {
+        console.error('Failed to resolve profile auth state:', error);
+        setCurrentUser(null);
+        setIsAuthResolved(true);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       return true; // Prevent back navigation
     });
@@ -213,13 +289,35 @@ const ProfileScreen = () => {
   }, [chatbotVisible, chatSheetTranslateY]);
 
   useEffect(() => {
+    if (Platform.OS !== 'web') {
+      return;
+    }
+
+    if (!showAddressModal) {
+      setIsWebAddressMapReady(false);
+      return;
+    }
+
+    setIsWebAddressMapReady(false);
+    const timeoutId = setTimeout(() => {
+      setIsWebAddressMapReady(true);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [showAddressModal]);
+
+  useEffect(() => {
     if (!showAddressModal) {
       return;
     }
 
+    let isActive = true;
     const existingAddress = profileData?.address ?? '';
     const existingLocation = profileData?.location;
     setEditableAddress(existingAddress);
+    setAddressMapError(null);
 
     if (
       typeof existingLocation?.latitude === 'number' &&
@@ -237,12 +335,26 @@ const ProfileScreen = () => {
 
     setPinnedLocation(null);
 
+    const applyFallbackMapCenter = async () => {
+      try {
+        const ipLocation = await getLocation();
+        if (isActive) {
+          setMapCenter(ipLocation);
+        }
+      } catch (error) {
+        console.error('Failed to resolve fallback address map center:', error);
+        if (isActive) {
+          setMapCenter(philippinesCenter);
+          setAddressMapError('Map location fallback is unavailable right now. You can still type your address and pin manually once the map loads.');
+        }
+      }
+    };
+
     (async () => {
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
         if (!permission.granted) {
-          const ipLocation = await getLocation();
-          setMapCenter(ipLocation);
+          await applyFallbackMapCenter();
           return;
         }
 
@@ -250,13 +362,18 @@ const ProfileScreen = () => {
           accuracy: Location.Accuracy.Balanced,
         });
 
-        setMapCenter([currentPosition.coords.longitude, currentPosition.coords.latitude]);
+        if (isActive) {
+          setMapCenter([currentPosition.coords.longitude, currentPosition.coords.latitude]);
+        }
       } catch (error) {
         console.error('Failed to initialize address map location:', error);
-        const ipLocation = await getLocation();
-        setMapCenter(ipLocation);
+        await applyFallbackMapCenter();
       }
     })();
+
+    return () => {
+      isActive = false;
+    };
   }, [showAddressModal, profileData]);
 
   useEffect(() => {
@@ -280,15 +397,21 @@ const ProfileScreen = () => {
   }, []);
 
   useEffect(() => {
-    const currentUser = auth.currentUser;
+    if (!isAuthResolved) {
+      setIsProfileLoading(true);
+      return;
+    }
 
     if (!currentUser) {
       setDisplayName(undefined);
       setProfileData(null);
       setLocalProfileImageUri(null);
       setIsProfileLoading(false);
+      setProfileLoadError(null);
       return;
     }
+
+    setIsProfileLoading(true);
 
     if (!isWebPlatform) {
       (async () => {
@@ -314,6 +437,7 @@ const ProfileScreen = () => {
           setDisplayName(fallbackAuthName);
           setProfileData(null);
           setIsProfileLoading(false);
+          setProfileLoadError(null);
           return;
         }
 
@@ -321,6 +445,7 @@ const ProfileScreen = () => {
 
         setProfileData(data);
         setIsProfileLoading(false);
+        setProfileLoadError(null);
 
         const fullName = [
           data.firstName?.trim(),
@@ -335,11 +460,12 @@ const ProfileScreen = () => {
       (error: unknown) => {
         console.error('Failed to listen to profile name:', error);
         setIsProfileLoading(false);
+        setProfileLoadError('Your profile could not be loaded right now. The screen will keep rendering with safe fallbacks.');
       }
     );
 
     return unsubscribe;
-  }, [isWebPlatform]);
+  }, [currentUser, isAuthResolved, isWebPlatform]);
 
   const handleLogout = async () => {
     try {
@@ -363,8 +489,6 @@ const ProfileScreen = () => {
   ] as MenuItem[];
 
   const handleToggleNotification = async (nextValue: boolean) => {
-    const currentUser = auth.currentUser;
-
     if (!currentUser) {
       Alert.alert('Session Expired', 'Please log in again to update notification settings.');
       return;
@@ -490,7 +614,6 @@ const ProfileScreen = () => {
   };
 
   const handleSaveAddress = async () => {
-    const currentUser = auth.currentUser;
     if (!currentUser) {
       Alert.alert('Session Expired', 'Please log in again to update your address.');
       return;
@@ -530,8 +653,6 @@ const ProfileScreen = () => {
   };
 
   const handleCustomizeProfilePhoto = async () => {
-    const currentUser = auth.currentUser;
-
     if (!currentUser) {
       Alert.alert('Session Expired', 'Please log in again to update your profile picture.');
       return;
@@ -652,8 +773,6 @@ const ProfileScreen = () => {
   );
 
   const handleClearLocalProfilePhoto = async () => {
-    const currentUser = auth.currentUser;
-
     if (!currentUser) {
       Alert.alert('Session Expired', 'Please log in again.');
       return;
@@ -706,8 +825,10 @@ const ProfileScreen = () => {
     setChatMessages((prev) => [...prev, userMessage]);
     setChatInput('');
     setIsChatSending(true);
+    setChatError(null);
 
     try {
+      const { sendChatbotMessage } = await import('../../services/openaiChatService');
       const assistantReply = await sendChatbotMessage(trimmedInput);
 
       setChatMessages((prev) => [
@@ -720,6 +841,8 @@ const ProfileScreen = () => {
       ]);
     } catch (error) {
       console.error('Chatbot request failed:', error);
+      const details = error instanceof Error ? error.message : 'Unable to send your message right now.';
+      setChatError(details);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -733,9 +856,43 @@ const ProfileScreen = () => {
     }
   };
 
+  const profileBootMessage = useMemo(() => {
+    if (!isAuthResolved) {
+      return 'Finalizing your profile session...';
+    }
+
+    if (!currentUser) {
+      return 'Your profile session is not ready yet. Please sign in again to continue.';
+    }
+
+    return null;
+  }, [currentUser, isAuthResolved]);
+
+  const screenResetKey = `${currentUser?.uid ?? 'guest'}-${String(showAddressModal)}-${String(isWebAddressMapReady)}`;
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View style={styles.screenContent}>
+      {profileBootMessage ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={THEME_BLUE} />
+          <Text style={styles.centerStateTitle}>Loading profile</Text>
+          <Text style={styles.centerStateMessage}>{profileBootMessage}</Text>
+          {isAuthResolved && !currentUser ? (
+            <TouchableOpacity
+              style={styles.primaryActionButton}
+              onPress={() => router.replace('/mobile-ui/user-log-in-sign-up-screen')}
+            >
+              <Text style={styles.primaryActionButtonText}>Back to sign in</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : (
+        <ProfileSectionBoundary
+          fallbackTitle="Profile unavailable"
+          fallbackMessage="A profile section crashed on web, so a safe fallback is shown instead of a blank screen."
+          resetKey={screenResetKey}
+        >
+          <View style={styles.screenContent}>
       {/* 1. TOP SECTION (Header Background & Avatar) */}
       <View style={styles.headerContainer}>
         <ImageBackground
@@ -787,6 +944,8 @@ const ProfileScreen = () => {
         <View style={styles.userNameSlot} pointerEvents="none">
           <Text style={styles.userName}>{displayName || 'Resident'}</Text>
         </View>
+
+        {profileLoadError ? <StatusCard text={profileLoadError} /> : null}
 
         {/* 2. MENU LIST */}
         <FlatList
@@ -942,18 +1101,26 @@ const ProfileScreen = () => {
                     <ActivityIndicator size="small" color={THEME_BLUE} />
                   </View>
                 )}
+
+                {chatError ? (
+                  <View style={styles.chatErrorCard}>
+                    <Text style={styles.chatErrorText}>{chatError}</Text>
+                  </View>
+                ) : null}
               </ScrollView>
             </View>
 
             <View style={styles.chatbotInputContainer}>
               <TextInput
-                style={styles.chatbotInput}
+                ref={chatInputRef}
+                style={[styles.chatbotInput, isWebPlatform && styles.webTextInput]}
                 placeholder="Type a message..."
                 placeholderTextColor="grey"
                 value={chatInput}
                 onChangeText={setChatInput}
                 onSubmitEditing={handleSendChat}
                 editable={!isChatSending}
+                returnKeyType="send"
               />
               <TouchableOpacity
                 style={styles.sendButton}
@@ -1083,7 +1250,7 @@ const ProfileScreen = () => {
 
             <Text style={styles.addressLabel}>Complete Address</Text>
             <TextInput
-              style={styles.addressInput}
+              style={[styles.addressInput, isWebPlatform && styles.webTextInput]}
               placeholder="Street, House No., Purok"
               placeholderTextColor="#64748B"
               value={editableAddress}
@@ -1093,14 +1260,32 @@ const ProfileScreen = () => {
             <Text style={styles.addressLabel}>Pin Exact Location</Text>
             <Text style={styles.addressHint}>Tap the map to pin your location.</Text>
             <View style={styles.addressMapContainer}>
-              <PinMap
-                center={mapCenter}
-                selectedPin={pinnedLocation ? [pinnedLocation.longitude, pinnedLocation.latitude] : null}
-                style={styles.addressMapWebView}
-                onPinChange={handleAddressMapPinChange}
-                scrollEnabled={false}
-              />
+              {!isWebAddressMapReady && isWebPlatform ? (
+                <View style={[styles.addressMapWebView, styles.mapFallbackCard]}>
+                  <ActivityIndicator size="small" color={THEME_BLUE} />
+                  <Text style={styles.mapFallbackTitle}>Preparing map</Text>
+                  <Text style={styles.mapFallbackMessage}>
+                    The map is waiting for the web view to finish mounting.
+                  </Text>
+                </View>
+              ) : (
+                <ProfileSectionBoundary
+                  fallbackTitle="Map unavailable"
+                  fallbackMessage="The address map hit a web-only runtime problem. You can still close this sheet and retry safely."
+                  resetKey={`${screenResetKey}-${String(showAddressModal)}`}
+                >
+                  <PinMap
+                    center={mapCenter}
+                    selectedPin={pinnedLocation ? [pinnedLocation.longitude, pinnedLocation.latitude] : null}
+                    style={styles.addressMapWebView}
+                    onPinChange={handleAddressMapPinChange}
+                    scrollEnabled={false}
+                  />
+                </ProfileSectionBoundary>
+              )}
             </View>
+
+            {addressMapError ? <StatusCard text={addressMapError} /> : null}
 
             <TouchableOpacity
               style={[styles.addressPinButton, isPinningLocation && styles.addressButtonDisabled]}
@@ -1147,10 +1332,19 @@ const ProfileScreen = () => {
           </View>
         </View>
       </Modal>
-      </View>
+          </View>
+        </ProfileSectionBoundary>
+      )}
     </SafeAreaView>
   );
 };
+
+const StatusCard = ({ text }: { text: string }) => (
+  <View style={styles.statusCard}>
+    <MaterialIcons name="info-outline" size={18} color="#92400E" />
+    <Text style={styles.statusCardText}>{text}</Text>
+  </View>
+);
 
 export default ProfileScreen;
 
@@ -1158,6 +1352,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F0F4F8',
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: responsiveInset.horizontal,
+  },
+  centerStateTitle: {
+    marginTop: 14,
+    fontSize: scaleFont(18),
+    fontWeight: '700',
+    color: THEME_BLUE,
+  },
+  centerStateMessage: {
+    marginTop: 8,
+    fontSize: scaleFont(13),
+    color: '#475569',
+    textAlign: 'center',
+    lineHeight: scaleFont(18),
+  },
+  primaryActionButton: {
+    marginTop: 18,
+    backgroundColor: THEME_BLUE,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  primaryActionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: scaleFont(14),
   },
   screenContent: {
     flex: 1,
@@ -1268,6 +1493,23 @@ const styles = StyleSheet.create({
   menuList: {
     width: '100%',
     flex: 1,
+  },
+  statusCard: {
+    width: Math.min(scaleWidth(320), screen.width - responsiveInset.horizontal * 2),
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  statusCardText: {
+    flex: 1,
+    color: '#9A3412',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
   },
   userNameSlot: {
     width: '100%',
@@ -1523,6 +1765,10 @@ const styles = StyleSheet.create({
     color: '#1E293B',
     backgroundColor: '#F8FAFC',
   },
+  webTextInput: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
   addressMapContainer: {
     height: Math.max(scaleHeight(190), screen.isSmallPhone ? 170 : 190),
     borderWidth: 1,
@@ -1534,6 +1780,26 @@ const styles = StyleSheet.create({
   addressMapWebView: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  mapFallbackCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: '#F8FAFC',
+  },
+  mapFallbackTitle: {
+    marginTop: 10,
+    color: THEME_BLUE,
+    fontSize: scaleFont(14),
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  mapFallbackMessage: {
+    marginTop: 6,
+    color: '#475569',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
+    textAlign: 'center',
   },
   addressPinButton: {
     marginTop: 10,
@@ -1678,7 +1944,42 @@ const styles = StyleSheet.create({
     marginRight: 10,
     color: 'black',
   },
+  chatErrorCard: {
+    alignSelf: 'stretch',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  chatErrorText: {
+    color: '#991B1B',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
+  },
   sendButton: {
     padding: 10,
+  },
+  sectionFallbackCard: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: responsiveInset.horizontal,
+  },
+  sectionFallbackTitle: {
+    marginTop: 10,
+    fontSize: scaleFont(16),
+    fontWeight: '700',
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  sectionFallbackMessage: {
+    marginTop: 8,
+    fontSize: scaleFont(13),
+    color: '#78350F',
+    textAlign: 'center',
+    lineHeight: scaleFont(18),
   },
 });
