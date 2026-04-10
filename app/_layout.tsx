@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { responsiveInset, scaleFont, scaleHeight } from '../constants/responsive';
 import { auth } from '../services/firebaseconfig';
 import {
@@ -122,67 +123,69 @@ export default function RootLayout() {
   }, [showInAppBanner]);
 
   return (
-    <View style={styles.root}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: 'none',
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="mobile-ui/user-log-in-sign-up-screen" />
-        <Stack.Screen name="mobile-ui/get-started" />
-        <Stack.Screen
-          name="mobile-ui/dashboard"
-          options={{
-            gestureEnabled: false,
+    <SafeAreaProvider>
+      <View style={styles.root}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'none',
           }}
-        />
-        <Stack.Screen
-          name="mobile-ui/profile-screen"
-          options={{
-            gestureEnabled: false,
-          }}
-        />
-        <Stack.Screen
-          name="mobile-ui/reports-screen"
-          options={{
-            gestureEnabled: false,
-          }}
-        />
-        <Stack.Screen
-          name="mobile-ui/reports-tracker-screen"
-          options={{
-            gestureEnabled: false,
-          }}
-        />
-        <Stack.Screen
-          name="mobile-ui/report-tracker-detail"
-          options={{
-            gestureEnabled: false,
-          }}
-        />
-        <Stack.Screen
-          name="mobile-ui/user-form"
-          options={{
-            gestureEnabled: false,
-          }}
-        />
-      </Stack>
-
-      {inAppBanner && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.inAppBanner}
-          onPress={() => setInAppBanner(null)}
         >
-          <Text style={styles.inAppBannerTitle}>{inAppBanner.title}</Text>
-          <Text numberOfLines={2} style={styles.inAppBannerBody}>
-            {inAppBanner.message}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="mobile-ui/user-log-in-sign-up-screen" />
+          <Stack.Screen name="mobile-ui/get-started" />
+          <Stack.Screen
+            name="mobile-ui/dashboard"
+            options={{
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="mobile-ui/profile-screen"
+            options={{
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="mobile-ui/reports-screen"
+            options={{
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="mobile-ui/reports-tracker-screen"
+            options={{
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="mobile-ui/report-tracker-detail"
+            options={{
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="mobile-ui/user-form"
+            options={{
+              gestureEnabled: false,
+            }}
+          />
+        </Stack>
+
+        {inAppBanner && (
+          <TouchableOpacity
+            activeOpacity={0.9}
+            style={styles.inAppBanner}
+            onPress={() => setInAppBanner(null)}
+          >
+            <Text style={styles.inAppBannerTitle}>{inAppBanner.title}</Text>
+            <Text numberOfLines={2} style={styles.inAppBannerBody}>
+              {inAppBanner.message}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 

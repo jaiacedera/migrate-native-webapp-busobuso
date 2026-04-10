@@ -1,13 +1,14 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import {
     collection,
     doc,
     getDoc,
     onSnapshot,
 } from 'firebase/firestore';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     BackHandler,
@@ -22,13 +23,61 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import HazardMap from '../../components/maps/HazardMap';
 import { responsiveInset, scaleFont, scaleHeight, scaleWidth, screen } from '../../constants/responsive';
 import { auth, db } from '../../services/firebaseconfig';
-import { sendChatbotMessage } from '../../services/openaiChatService';
 const THEME_BLUE = '#274C77';
 const BG_COLOR = '#F0F4F8';
+const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
+type DashboardErrorBoundaryProps = {
+  children: React.ReactNode;
+  fallbackTitle: string;
+  fallbackMessage: string;
+  resetKey: string;
+};
+
+type DashboardErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class DashboardErrorBoundary extends React.Component<
+  DashboardErrorBoundaryProps,
+  DashboardErrorBoundaryState
+> {
+  state: DashboardErrorBoundaryState = {
+    hasError: false,
+  };
+
+  static getDerivedStateFromError(): DashboardErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Dashboard section crashed:', error);
+  }
+
+  componentDidUpdate(prevProps: DashboardErrorBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.sectionFallbackCard}>
+          <MaterialIcons name="error-outline" size={30} color="#B45309" />
+          <Text style={styles.sectionFallbackTitle}>{this.props.fallbackTitle}</Text>
+          <Text style={styles.sectionFallbackMessage}>{this.props.fallbackMessage}</Text>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 type AlertItem = {
   id: string;
@@ -360,7 +409,8 @@ const toDateValue = (value: unknown): Date | null => {
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const safeAreaInsets = useContext(SafeAreaInsetsContext);
+  const insets = safeAreaInsets ?? ZERO_INSETS;
   
   // Modal states
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
@@ -381,8 +431,57 @@ export default function DashboardScreen() {
   ]);
   const [chatInput, setChatInput] = useState('');
   const [isChatSending, setIsChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(auth.currentUser);
+  const [isAuthResolved, setIsAuthResolved] = useState(Boolean(auth.currentUser));
+  const [isResolvingDeviceLocation, setIsResolvingDeviceLocation] = useState(Platform.OS !== 'web');
+  const [deviceLocationError, setDeviceLocationError] = useState<string | null>(null);
+  const [isLoadingProfileLocation, setIsLoadingProfileLocation] = useState(false);
+  const [profileLocationError, setProfileLocationError] = useState<string | null>(null);
+  const [isLoadingEvacuationCenters, setIsLoadingEvacuationCenters] = useState(true);
+  const [evacuationCentersError, setEvacuationCentersError] = useState<string | null>(null);
+  const [isLoadingAlerts, setIsLoadingAlerts] = useState(true);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+  const [isWebMapReady, setIsWebMapReady] = useState(Platform.OS !== 'web');
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (user) => {
+        setCurrentUser(user);
+        setIsAuthResolved(true);
+      },
+      (error) => {
+        console.error('Failed to resolve dashboard auth state:', error);
+        setCurrentUser(null);
+        setIsAuthResolved(true);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      return;
+    }
+
+    setIsWebMapReady(false);
+
+    const timeoutId = setTimeout(() => {
+      setIsWebMapReady(true);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       return true; // Prevent back navigation
     });
@@ -391,26 +490,56 @@ export default function DashboardScreen() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    setIsResolvingDeviceLocation(true);
+    setDeviceLocationError(null);
+
     (async () => {
       try {
         const bestCoords = await fetchBestAvailableDeviceCoords();
-        if (bestCoords) {
+        if (isMounted && bestCoords) {
           setDeviceCoords(bestCoords);
         }
       } catch (error) {
         console.warn('Unable to resolve device location for evacuation centers. Using profile/default fallback.', error);
+        if (isMounted) {
+          setDeviceLocationError('Device location is unavailable right now. The dashboard will keep using saved or default location data.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsResolvingDeviceLocation(false);
+        }
       }
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    if (!isAuthResolved) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if (!currentUser) {
+      setProfileCoords(null);
+      setIsLoadingProfileLocation(false);
+      setProfileLocationError(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsLoadingProfileLocation(true);
+    setProfileLocationError(null);
+
     (async () => {
-      const currentUser = auth.currentUser;
-
-      if (!currentUser) {
-        return;
-      }
-
       try {
         const profileRef = doc(db, 'residents', currentUser.uid);
         const profileSnapshot = await getDoc(profileRef);
@@ -420,14 +549,25 @@ export default function DashboardScreen() {
         const latitude = Number(location?.latitude);
         const longitude = Number(location?.longitude);
 
-        if (!Number.isNaN(latitude) && !Number.isNaN(longitude)) {
+        if (isMounted && !Number.isNaN(latitude) && !Number.isNaN(longitude)) {
           setProfileCoords({ latitude, longitude });
         }
       } catch (error) {
         console.error('Failed to fetch saved user-form location:', error);
+        if (isMounted) {
+          setProfileLocationError('Saved profile location could not be loaded. The dashboard will continue without it.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingProfileLocation(false);
+        }
       }
     })();
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser, isAuthResolved]);
 
   const handleSelectLocationSource = (source: LocationSource) => {
     setLocationSource(source);
@@ -489,11 +629,19 @@ export default function DashboardScreen() {
   }, [evacuationCenters, referenceCoords]);
 
   useEffect(() => {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      setEvacuationCenters(CSV_FALLBACK_CENTERS);
+    if (!isAuthResolved) {
       return;
     }
+
+    if (!currentUser) {
+      setEvacuationCenters(CSV_FALLBACK_CENTERS);
+      setIsLoadingEvacuationCenters(false);
+      setEvacuationCentersError(null);
+      return;
+    }
+
+    setIsLoadingEvacuationCenters(true);
+    setEvacuationCentersError(null);
 
     const evacuationRef = collection(db, 'evacuationCenters');
 
@@ -532,6 +680,9 @@ export default function DashboardScreen() {
         } else {
           setEvacuationCenters(CSV_FALLBACK_CENTERS);
         }
+
+        setEvacuationCentersError(null);
+        setIsLoadingEvacuationCenters(false);
       },
       (error: unknown) => {
         const firebaseCode =
@@ -546,11 +697,13 @@ export default function DashboardScreen() {
         }
 
         setEvacuationCenters(CSV_FALLBACK_CENTERS);
+        setEvacuationCentersError('Live evacuation centers are unavailable right now. Showing default locations instead.');
+        setIsLoadingEvacuationCenters(false);
       }
     );
 
     return unsubscribe;
-  }, []);
+  }, [currentUser, isAuthResolved]);
 
   const nearbyEvacuationCenters = useMemo(() => {
     const withDistance: CenterWithDistance[] = evacuationCenters.map((center) => {
@@ -574,12 +727,19 @@ export default function DashboardScreen() {
   }, [evacuationCenters, referenceCoords, roadDistanceByCenterId]);
 
   useEffect(() => {
-    const currentUser = auth.currentUser;
+    if (!isAuthResolved) {
+      return;
+    }
 
     if (!currentUser) {
       setAlerts([]);
+      setIsLoadingAlerts(false);
+      setAlertsError(null);
       return;
     }
+
+    setIsLoadingAlerts(true);
+    setAlertsError(null);
 
     const alertsRef = collection(db, 'alerts');
     const activeAlertsRef = collection(db, 'activeAlerts');
@@ -627,11 +787,15 @@ export default function DashboardScreen() {
           .filter((alert: AlertItem) => alert.timestamp !== null);
 
         updateAlerts();
+        setAlertsError(null);
+        setIsLoadingAlerts(false);
       },
       (error: unknown) => {
         console.error('Failed to fetch alerts:', error);
         latestAlerts = [];
         updateAlerts();
+        setAlertsError('Emergency alerts could not be refreshed right now.');
+        setIsLoadingAlerts(false);
       }
     );
 
@@ -663,11 +827,15 @@ export default function DashboardScreen() {
           }, []);
 
         updateAlerts();
+        setAlertsError(null);
+        setIsLoadingAlerts(false);
       },
       (error: unknown) => {
         console.error('Failed to fetch active alerts:', error);
         latestActiveAlerts = [];
         updateAlerts();
+        setAlertsError('Active alerts could not be refreshed right now.');
+        setIsLoadingAlerts(false);
       }
     );
 
@@ -675,7 +843,7 @@ export default function DashboardScreen() {
       unsubscribeAlerts();
       unsubscribeActiveAlerts();
     };
-  }, []);
+  }, [currentUser, isAuthResolved]);
 
   const handleSendChat = async () => {
     const trimmedInput = chatInput.trim();
@@ -693,8 +861,10 @@ export default function DashboardScreen() {
     setChatMessages((prev) => [...prev, userMessage]);
     setChatInput('');
     setIsChatSending(true);
+    setChatError(null);
 
     try {
+      const { sendChatbotMessage } = await import('../../services/openaiChatService');
       const assistantReply = await sendChatbotMessage(trimmedInput);
 
       setChatMessages((prev) => [
@@ -707,6 +877,8 @@ export default function DashboardScreen() {
       ]);
     } catch (error) {
       console.error('Chatbot request failed:', error);
+      const details = error instanceof Error ? error.message : 'Unable to send your message right now.';
+      setChatError(details);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -720,8 +892,68 @@ export default function DashboardScreen() {
     }
   };
 
+  const dashboardBootMessage = useMemo(() => {
+    if (!isAuthResolved) {
+      return 'Finalizing your sign-in session...';
+    }
+
+    if (!currentUser) {
+      return 'Your dashboard session is not ready yet. Please return to sign in and try again.';
+    }
+
+    return null;
+  }, [currentUser, isAuthResolved]);
+
+  const locationStatusMessage = useMemo(() => {
+    if (isResolvingDeviceLocation || isLoadingProfileLocation) {
+      return 'Preparing your location for routing and distance calculations...';
+    }
+
+    if (referenceCoords) {
+      return null;
+    }
+
+    if (deviceLocationError || profileLocationError) {
+      return 'The dashboard is still usable, but nearby distances and routing may stay limited until a device or saved profile location is available.';
+    }
+
+    return 'Add or allow a device/profile location to unlock route distances.';
+  }, [
+    deviceLocationError,
+    isLoadingProfileLocation,
+    isResolvingDeviceLocation,
+    profileLocationError,
+    referenceCoords,
+  ]);
+
+  const mapGuardMessage = useMemo(() => {
+    if (!isWebMapReady) {
+      return 'Preparing the hazard map for web...';
+    }
+
+    if (isLoadingEvacuationCenters) {
+      return 'Loading evacuation center map data...';
+    }
+
+    if (evacuationCenters.length === 0) {
+      return 'No evacuation centers are available to plot right now.';
+    }
+
+    return null;
+  }, [evacuationCenters.length, isLoadingEvacuationCenters, isWebMapReady]);
+
+  const screenResetKey = `${currentUser?.uid ?? 'guest'}-${String(isWebMapReady)}`;
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <View
+      style={[
+        styles.safeArea,
+        {
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
       <View style={styles.container}>
         
         {/* APP BAR */}
@@ -741,19 +973,48 @@ export default function DashboardScreen() {
 
         {/* MAIN CONTENT AREA */}
         <View style={styles.body}>
-          <HomeContent
-            alerts={alerts}
-            evacuationCenters={nearbyEvacuationCenters}
-            referenceCoords={referenceCoords}
-            locationSource={locationSource}
-            onChangeLocationSourcePress={() => setLocationPreferenceVisible(true)}
-          />
+          {dashboardBootMessage ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator size="large" color={THEME_BLUE} />
+              <Text style={styles.centerStateTitle}>Loading dashboard</Text>
+              <Text style={styles.centerStateMessage}>{dashboardBootMessage}</Text>
+              {isAuthResolved && !currentUser ? (
+                <TouchableOpacity
+                  style={styles.primaryActionButton}
+                  onPress={() => router.replace('/mobile-ui/user-log-in-sign-up-screen')}
+                >
+                  <Text style={styles.primaryActionButtonText}>Back to sign in</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : (
+            <DashboardErrorBoundary
+              fallbackTitle="Dashboard unavailable"
+              fallbackMessage="A dashboard section crashed while loading on web. The route stayed mounted, but this content was hidden to prevent a blank screen."
+              resetKey={screenResetKey}
+            >
+              <HomeContent
+                alerts={alerts}
+                alertsError={alertsError}
+                evacuationCenters={nearbyEvacuationCenters}
+                evacuationCentersError={evacuationCentersError}
+                referenceCoords={referenceCoords}
+                locationSource={locationSource}
+                locationStatusMessage={locationStatusMessage}
+                mapGuardMessage={mapGuardMessage}
+                isAlertsLoading={isLoadingAlerts}
+                isMapReady={isWebMapReady}
+                onChangeLocationSourcePress={() => setLocationPreferenceVisible(true)}
+              />
+            </DashboardErrorBoundary>
+          )}
           
           {/* CHATBOT FLOATING BUTTON */}
           <TouchableOpacity 
             style={[styles.chatbotFab, { bottom: scaleHeight(68) + insets.bottom }]} 
             onPress={() => setChatbotVisible(true)}
             activeOpacity={0.8}
+            disabled={!currentUser}
           >
             <Image 
               source={require('../../assets/images/pyro_logo.png')} 
@@ -924,6 +1185,12 @@ export default function DashboardScreen() {
                       <ActivityIndicator size="small" color={THEME_BLUE} />
                     </View>
                   )}
+
+                  {chatError ? (
+                    <View style={styles.chatErrorCard}>
+                      <Text style={styles.chatErrorText}>{chatError}</Text>
+                    </View>
+                  ) : null}
                 </ScrollView>
               </View>
 
@@ -950,22 +1217,34 @@ export default function DashboardScreen() {
         </Modal>
 
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // --- HOME CONTENT COMPONENT ---
 const HomeContent = ({
   alerts,
+  alertsError,
   evacuationCenters,
+  evacuationCentersError,
   referenceCoords,
   locationSource,
+  locationStatusMessage,
+  mapGuardMessage,
+  isAlertsLoading,
+  isMapReady,
   onChangeLocationSourcePress,
 }: {
   alerts: AlertItem[];
+  alertsError: string | null;
   evacuationCenters: CenterWithDistance[];
+  evacuationCentersError: string | null;
   referenceCoords: Coordinates | null;
   locationSource: LocationSource;
+  locationStatusMessage: string | null;
+  mapGuardMessage: string | null;
+  isAlertsLoading: boolean;
+  isMapReady: boolean;
   onChangeLocationSourcePress: () => void;
 }) => {
   const [selectedCenterId, setSelectedCenterId] = useState<string | null>(null);
@@ -974,7 +1253,12 @@ const HomeContent = ({
     <ScrollView contentContainerStyle={styles.homeScrollContent} showsVerticalScrollIndicator={false}>
       <Text style={styles.sectionTitle}>Emergency News & Updates</Text>
 
-      {alerts.length > 0 ? (
+      {isAlertsLoading ? (
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="small" color={THEME_BLUE} />
+          <Text style={styles.loadingCardText}>Loading latest alerts...</Text>
+        </View>
+      ) : alerts.length > 0 ? (
         alerts.map((alert) => (
           <NewsCard
             key={alert.id}
@@ -990,15 +1274,28 @@ const HomeContent = ({
         </View>
       )}
 
+      {alertsError ? <StatusCard text={alertsError} /> : null}
+
       <View style={{ height: scaleHeight(22) }} />
       <Text style={styles.sectionTitle}>Hazard Map</Text>
-      <MapSection
-        centers={evacuationCenters}
-        referenceCoords={referenceCoords}
-        locationSource={locationSource}
-        selectedCenterId={selectedCenterId}
-        onChangeLocationSourcePress={onChangeLocationSourcePress}
-      />
+      <DashboardErrorBoundary
+        fallbackTitle="Hazard map unavailable"
+        fallbackMessage="The map section hit a runtime problem on web, so a fallback card is shown instead of a blank screen."
+        resetKey={`${String(isMapReady)}-${evacuationCenters.length}-${selectedCenterId ?? 'none'}`}
+      >
+        <MapSection
+          centers={evacuationCenters}
+          referenceCoords={referenceCoords}
+          locationSource={locationSource}
+          locationStatusMessage={locationStatusMessage}
+          mapGuardMessage={mapGuardMessage}
+          isMapReady={isMapReady}
+          selectedCenterId={selectedCenterId}
+          onChangeLocationSourcePress={onChangeLocationSourcePress}
+        />
+      </DashboardErrorBoundary>
+
+      {evacuationCentersError ? <StatusCard text={evacuationCentersError} /> : null}
 
       <View style={{ height: scaleHeight(22) }} />
       <Text style={styles.sectionTitle}>Nearby Evacuation Centers</Text>
@@ -1040,26 +1337,43 @@ const MapSection = ({
   centers,
   referenceCoords,
   locationSource,
+  locationStatusMessage,
+  mapGuardMessage,
+  isMapReady,
   selectedCenterId,
   onChangeLocationSourcePress,
 }: {
   centers: CenterWithDistance[];
   referenceCoords: Coordinates | null;
   locationSource: LocationSource;
+  locationStatusMessage: string | null;
+  mapGuardMessage: string | null;
+  isMapReady: boolean;
   selectedCenterId: string | null;
   onChangeLocationSourcePress: () => void;
 }) => {
   const sourceLabel = locationSource === 'profile' ? 'Saved form location' : 'Device location';
+  const shouldRenderMap = isMapReady && centers.length > 0;
 
   return (
     <View style={styles.mapCard}>
-      <HazardMap
-        centers={centers}
-        referenceCoords={referenceCoords}
-        selectedCenterId={selectedCenterId}
-        style={styles.mapWebView}
-        scrollEnabled={false}
-      />
+      {shouldRenderMap ? (
+        <HazardMap
+          centers={centers}
+          referenceCoords={referenceCoords}
+          selectedCenterId={selectedCenterId}
+          style={styles.mapWebView}
+          scrollEnabled={false}
+        />
+      ) : (
+        <View style={[styles.mapWebView, styles.mapPlaceholder]}>
+          <MaterialIcons name="map" size={34} color={THEME_BLUE} />
+          <Text style={styles.mapPlaceholderTitle}>Map loading safely</Text>
+          <Text style={styles.mapPlaceholderText}>
+            {mapGuardMessage ?? 'The hazard map is temporarily unavailable.'}
+          </Text>
+        </View>
+      )}
       <View style={styles.mapButton}>
         <MaterialIcons name="place" size={18} color={THEME_BLUE} />
         <Text style={styles.mapButtonText}>{centers.length} evacuation center(s) plotted • {sourceLabel}</Text>
@@ -1067,9 +1381,30 @@ const MapSection = ({
           <Text style={styles.mapSourceButtonText}>Change source</Text>
         </TouchableOpacity>
       </View>
+      {locationStatusMessage ? (
+        <View style={styles.mapStatusInline}>
+          <MaterialIcons name="info-outline" size={16} color="#4B5563" />
+          <Text style={styles.mapStatusInlineText}>{locationStatusMessage}</Text>
+        </View>
+      ) : null}
+      {!referenceCoords ? (
+        <View style={styles.mapStatusInline}>
+          <MaterialIcons name="directions-walk" size={16} color="#4B5563" />
+          <Text style={styles.mapStatusInlineText}>
+            Route lines and distance ordering will improve once a location source is available.
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 };
+
+const StatusCard = ({ text }: { text: string }) => (
+  <View style={styles.statusCard}>
+    <MaterialIcons name="info-outline" size={18} color="#92400E" />
+    <Text style={styles.statusCardText}>{text}</Text>
+  </View>
+);
 
 const EvacuationCard = ({
   name,
@@ -1137,6 +1472,37 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     position: 'relative',
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: responsiveInset.horizontal,
+  },
+  centerStateTitle: {
+    marginTop: 14,
+    fontSize: scaleFont(18),
+    fontWeight: '700',
+    color: THEME_BLUE,
+  },
+  centerStateMessage: {
+    marginTop: 8,
+    fontSize: scaleFont(13),
+    color: '#475569',
+    textAlign: 'center',
+    lineHeight: scaleFont(18),
+  },
+  primaryActionButton: {
+    marginTop: 18,
+    backgroundColor: THEME_BLUE,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  primaryActionButtonText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: scaleFont(14),
   },
   homeScrollContent: {
     flexGrow: 1,
@@ -1370,7 +1736,70 @@ const styles = StyleSheet.create({
   sendButton: {
     padding: 10,
   },
+  chatErrorCard: {
+    alignSelf: 'stretch',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  chatErrorText: {
+    color: '#991B1B',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
+  },
   // Cards
+  loadingCard: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  loadingCardText: {
+    color: '#475569',
+    fontSize: scaleFont(13),
+  },
+  statusCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  statusCardText: {
+    flex: 1,
+    color: '#9A3412',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
+  },
+  sectionFallbackCard: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  sectionFallbackTitle: {
+    marginTop: 10,
+    fontSize: scaleFont(16),
+    fontWeight: '700',
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  sectionFallbackMessage: {
+    marginTop: 8,
+    fontSize: scaleFont(13),
+    color: '#78350F',
+    textAlign: 'center',
+    lineHeight: scaleFont(18),
+  },
   newsCard: {
     backgroundColor: 'white',
     borderRadius: 15,
@@ -1422,6 +1851,26 @@ const styles = StyleSheet.create({
     height: Math.max(scaleHeight(200), screen.isSmallPhone ? 185 : 200),
     backgroundColor: '#FFFFFF',
   },
+  mapPlaceholder: {
+    backgroundColor: '#E8EEF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  mapPlaceholderTitle: {
+    marginTop: 10,
+    color: THEME_BLUE,
+    fontSize: scaleFont(15),
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  mapPlaceholderText: {
+    marginTop: 6,
+    color: '#475569',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(17),
+    textAlign: 'center',
+  },
   mapButton: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1446,6 +1895,20 @@ const styles = StyleSheet.create({
     color: THEME_BLUE,
     fontSize: scaleFont(11),
     fontWeight: '700',
+  },
+  mapStatusInline: {
+    marginTop: 10,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  mapStatusInlineText: {
+    flex: 1,
+    color: '#475569',
+    fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
   },
   evacCard: {
     flexDirection: 'row',

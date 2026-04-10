@@ -29,7 +29,7 @@ const getMapLibreGlobal = (): MapLibreGlobal | null => {
     return null;
   }
 
-  return (window as Window & { maplibregl?: MapLibreGlobal }).maplibregl ?? null;
+  return (window as unknown as Window & { maplibregl?: MapLibreGlobal }).maplibregl ?? null;
 };
 
 const ensureMapLibreCss = () => {
